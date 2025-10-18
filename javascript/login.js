@@ -8,6 +8,35 @@ document.getElementById("password").addEventListener("input", (e) => {
   validatePassword(password);
 });
 
+document.getElementById("loginButton").addEventListener("click", async() => {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+
+    const requestBody = {
+        email,
+        password,
+
+    }
+    try{
+      const response = await fetch("http://127.0.0.1:8080/api/users/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody),
+      credentials: "include" //쿠키 설정을 위해
+    });
+
+    if (response.ok) {
+      location.href = "/html/getUser.html";
+    } 
+  } catch (error) {
+    alert("서버 요청 중 오류가 발생했습니다.");
+  }
+});
+
+
 function validateEmail(email){
     const errorElement =document.getElementById("emailError");
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
