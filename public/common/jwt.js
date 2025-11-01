@@ -9,9 +9,9 @@
  * - 세션 쿠키를 자동으로 포함 (credentials: "include")
  *
 */
-export async function checkSession() {
+export async function checkJwt() {
   try {
-    const res = await fetch("http://localhost:8080/api/session/check", {
+    const res = await fetch("http://localhost:8080/api/jwt/validate", {
       method: "GET",
       credentials: "include"
     });
@@ -20,13 +20,25 @@ export async function checkSession() {
       const data = await res.json();
       return data;
     } else {
-      console.log("세션 없음");
+      console.log("jwt 없음");
       return { login: false };
     }
   } catch (error) {
-    console.error("세션 확인 중 오류:", error);
+    console.error("jwt 확인 중 오류:", error);
     return { login: false };
   }
+}
+
+export async function jwtGuard(redirectUrl = "/login") {
+  const result = await checkJwt();
+  if (!result.login) {
+    alert("로그인이 필요합니다.");
+    setTimeout(() => {
+      window.location.href = redirectUrl;
+    }, 1000); // 0.3초 지연
+    throw new Error("인증 실패");
+  }
+  return result.userId;
 }
 
 /** 로그아웃 처리 */
