@@ -1,66 +1,136 @@
-/**
- * 게시물 생성시 제목 입력 형식 검증 이벤트 리스너 
- *  제목 길이 검증
- * 
- * 1. html에서 title 설정된 id를 찾는다.
- * 2. 사용자가 입력한 title 추출하여 변수에 저장한다.
- * 3. validateTitle함수 메서드를 호출하여 제목 검증을 진행한다.
- */
-document.getElementById("title").addEventListener("input", (e) => {
-  const title = e.target.value;
-  validateTitle(title);
-});
+import { jwtGuard } from "../common/jwt.js";
+import { showToast } from "../common/toast.js";
 
-/**
- * 게시물 생성시 fetch 연결 요청
- * 1. title,text를 id를 통해서 찾고 변수에 저장
- * 1-1. profileImage는 아직 백엔드 이미지 처리로직이 미완성 돼잇기 때문에 임의의 url로 설정
- * 2. requestBody 객체를 통해서 한번에 요청하기 위해 설정
- * 3. http://127.0.0.1:8080/api/posts/create로 백엔드 POST요청을 보냄
- * 4. 응답이 성공적으로 왔을 경우 게시물 생성 성공 메세지를 반환 후 게시물 리스트 목록 페이지(임시 페이지)로 이동
- * 5. 응답 중 오류가 발생했을 시 오류발생 메세지 반환
- */
-document.getElementById("createPostButton").addEventListener("click", async() => {
-
-    const title = document.getElementById("title").value;
-    const text = document.getElementById("text").value;
-    const postImage = "www.s3.url"
-
-    const requestBody = {
-        
-        title,
-        text,
-        postImage
-
-    }
-    try{
-      const response = await fetch("http://localhost:8080/api/posts/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(requestBody),
-      credentials : "include"
-    });
-
-    if (response.ok) {
-      alert("게시물 생성 성공!");
-      location.href = "/getPostList";
-
-    } 
-  } catch (error) {
-    alert("서버 요청 중 오류가 발생했습니다.");
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    initTitleValidation();
+    initImageUpload();
+    initCreateButton();
+  } catch (e) {
+    console.warn("인증 실패:", e.message);
+    showToast("🔐 로그인 세션이 만료되었어요. 다시 로그인해주세요!", "error");
   }
 });
 
-//제목의 길이를 검증하는 메서드
-function validateTitle(title){
-    const errorElement =document.getElementById("titleError");
-   if(title.length > 26){
-        errorElement.textContent = "제목은 최대 26자까지 작성 가능합니다."
-        return false;
-    }
-    errorElement.textContent = ""
-    return true;
+/* -----------------------------------------------------------
+ * 1. 제목 검증
+ * -----------------------------------------------------------*/
+function initTitleValidation() {
+  document.getElementById("title").addEventListener("input", (e) => {
+    validateTitle(e.target.value);
+  });
+}
 
+function validateTitle(title) {
+  const errorElement = document.getElementById("titleError");
+  if (title.length > 26) {
+    errorElement.textContent = "❗ 제목은 26자 이하로 작성해주세요.";
+    return false;
+  }
+  errorElement.textContent = "";
+  return true;
+}
+
+/* -----------------------------------------------------------
+ * 2. 이미지 업로드
+ * -----------------------------------------------------------*/
+function initImageUpload() {
+  const uploadButton = document.querySelector(".submit");
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*";
+  fileInput.style.display = "none";
+  document.body.appendChild(fileInput);
+
+  uploadButton.addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    const LAMBDA_UPLOAD_URL =
+      "https://dkqpvtnd78.execute-api.ap-northeast-2.amazonaws.com/upload/profile-image";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const lambdaRes = await fetch(LAMBDA_UPLOAD_URL, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!lambdaRes.ok) throw new Error("Lambda 업로드 실패");
+
+    const json = await lambdaRes.json();
+    const uploadedImageUrl = json.data.filePath;
+
+    // 🔥 쿠키 저장
+    document.cookie = `postImageUrl=${uploadedImageUrl}; path=/; max-age=${60 * 30};`;
+
+    // 🔥 UI에 파일명 & 미리보기 표시
+    document.getElementById("imagePreviewBox").style.display = "block";
+    document.getElementById("previewImage").src = uploadedImageUrl;
+    document.getElementById("previewFileName").textContent = `📁 ${file.name}`;
+
+    showToast("📸 이미지 등록 완료!", "success");
+
+  } catch (error) {
+    console.error("이미지 업로드 오류:", error);
+    showToast("🚨 이미지 업로드 중 문제가 발생했어요.", "error");
+  }
+});
+
+}
+
+/* -----------------------------------------------------------
+ * 3. 게시물 생성 요청
+ * -----------------------------------------------------------*/
+function initCreateButton() {
+  document.getElementById("createPostButton").addEventListener("click", async () => {
+
+    const title = document.getElementById("title").value.trim();
+    const text = document.getElementById("text").value.trim();
+
+    if (!title || !text) {
+      showToast("⚠️ 제목과 내용을 모두 입력해주세요!", "warning");
+      return;
+    }
+
+    const postImage = getCookie("postImageUrl") || null;
+
+    const requestBody = { title, text, postImage };
+
+    try {
+      const response = await fetch(`${window.BACKEND_URL}/api/posts/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        credentials: "include",
+      });
+
+      if (response.ok) {
+        showToast("🎉 게시물이 등록됐어요!", "success");
+        document.cookie = "postImageUrl=; Max-Age=0; path=/";
+
+        setTimeout(() => (location.href = "/getPostList"), 900);
+      } else {
+        showToast("❌ 게시물 등록 실패… 다시 시도해볼까요?", "error");
+      }
+    } catch (error) {
+      console.error("게시물 생성 오류:", error);
+      showToast("🚨 서버 오류가 발생했어요. 잠시 후 다시 시도해주세요.", "error");
+    }
+  });
+}
+
+/* -----------------------------------------------------------
+ * 4. 쿠키 유틸
+ * -----------------------------------------------------------*/
+function getCookie(name) {
+  const match = document.cookie.match(
+    new RegExp("(^| )" + name + "=([^;]+)")
+  );
+  return match ? match[2] : null;
 }

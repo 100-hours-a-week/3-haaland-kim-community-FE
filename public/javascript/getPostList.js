@@ -1,12 +1,51 @@
 const postList = document.getElementById("postList");
 const loader = document.getElementById("loader");
+const postPage = document.getElementById("postPage");
+
+// 페이지 로드시 로그인 여부 체크
+document.addEventListener("DOMContentLoaded", () => {
+  checkLoginState();
+});
 
 let page = 0;
-let size = 5;
+let size = 4;
 let isLoading = false;
 let isLast = false;
+let pageShown = false;
+const MIN_LOADING_MS = 400; // 로딩 체감을 위한 최소 표시 시간
 
-// 게시글 렌더링
+/* -----------------------------------------------------------
+ * 1. 로그인 상태에 따라 "게시글 작성" 버튼 표시/숨김
+
+ * -----------------------------------------------------------*/
+async function checkLoginState() {
+  const btn = document.querySelector(".write-btn");
+
+  try {
+    const res = await fetch(`${window.BACKEND_URL}/api/jwt/validate`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    // 401 → 로그인 안 됨
+    if (res.status === 401) {
+      btn.style.display = "none";
+      return;
+    }
+
+    const data = await res.json();
+    if (!data.login) {
+      btn.style.display = "none";
+    }
+
+  } catch (e) {
+    btn.style.display = "none";
+  }
+}
+
+/* -----------------------------------------------------------
+ * 2. 게시글 렌더링
+ * -----------------------------------------------------------*/
 function renderPosts(posts) {
   posts.forEach(post => {
     const div = document.createElement("div");
@@ -25,37 +64,49 @@ function renderPosts(posts) {
   });
 }
 
-// 게시글 불러오기
+/* -----------------------------------------------------------
+ * 3. 게시글 불러오기 (무한 스크롤)
+ * -----------------------------------------------------------*/
 async function loadPosts() {
   if (isLoading || isLast) return;
   isLoading = true;
   loader.style.display = "block";
 
-
   try {
-    const res = await fetch(`http://localhost:8080/api/posts/list?page=${page}&size=${size}`);
+    const fetchPromise = fetch(`${window.BACKEND_URL}/api/posts/list?page=${page}&size=${size}`);
+    const delayPromise = new Promise((resolve) => setTimeout(resolve, MIN_LOADING_MS));
+    const res = await Promise.all([fetchPromise, delayPromise]).then(([r]) => r);
     if (!res.ok) throw new Error("게시글 로드 실패");
 
     const data = await res.json();
-    console.log("✅ 응답 데이터:", data);
-
     renderPosts(data.posts);
-    isLast = !data.hasMore; // hasMore=false면 마지막 페이지
+
+    isLast = !data.hasMore;
     page++;
 
     loader.textContent = isLast ? "마지막 페이지입니다" : "스크롤하면 더 불러옵니다";
+
   } catch (err) {
-    console.error("오류:", err);
+    showToast("💥 게시글을 불러오는 중 문제가 생겼어요!", "error");
     loader.textContent = "에러 발생";
+
   } finally {
+    if (!pageShown && postPage) {
+      postPage.style.display = "block"; // 첫 로드 후에만 전체 페이지 노출
+      pageShown = true;
+    }
     isLoading = false;
   }
 }
 
-// IntersectionObserver
+/* -----------------------------------------------------------
+ * 4. IntersectionObserver로 무한 스크롤 실행
+ * -----------------------------------------------------------*/
 const observer = new IntersectionObserver(entries => {
   const target = entries[0];
-  if (target.isIntersecting && !isLoading && !isLast) loadPosts();
+  if (target.isIntersecting && !isLoading && !isLast) {
+    loadPosts();
+  }
 });
 
 observer.observe(loader);

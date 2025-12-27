@@ -1,39 +1,93 @@
-/**
- *  회원정보 조회 시 fetch 연결 요청
- * 1. 회원정보 조회 페이지에 접근했을 때 실행되는 fetch 요청
- * 2. 현재 쿠키에 저장된 세션을 통해서 http://127.0.0.1:8080/api/users로 백엔드 GET요청을 보냄
- * 3. 세션 쿠키를 포함하기 위헤 credentials: "include"로 설정
- * 4. 서버로부터 받은 회원 정보를 HTML 요소(id=email, id=nickname)에 표시
- * 5. 응답 오류 발생 시 경고창 또는 콘솔을 통해 오류 메시지를 표시
- */
-document.addEventListener("DOMContentLoaded", async () => {
-    
-    
+import { jwtGuard } from "../common/jwt.js";
+import { showToast } from "../common/toast.js";
+
+(async () => {
   try {
-    const response = await fetch("http://localhost:8080/api/users", {
+    await jwtGuard();   
+    await initPage();   
+    initDeleteUserButton();
+  } catch (e) {
+    console.warn("인증 실패:", e.message);
+  }
+})();
+
+async function initPage() {
+  try {
+    const response = await fetch(`${window.BACKEND_URL}/api/users`, {
       method: "GET",
       credentials: "include"
     });
 
     if (!response.ok) {
-      alert("로그인이 필요합니다.");
-      // location.href = "/login";
+      showToast("로그인이 필요합니다.", "warning");
+      location.href = "/login";
       return;
-    }
+    } 
 
+    const S3_BASE_URL = "https://haaland-bucket.s3.ap-northeast-2.amazonaws.com/";
     const data = await response.json();
     document.getElementById("email").textContent = data.email;
     document.getElementById("nickname").textContent = data.nickname;
+
+    const imgElement = document.querySelector(".profile-image img");
+
+    if (!data.profileImage) {
+      imgElement.src = "/user.png";
+    } else if (data.profileImage.startsWith("http")) {
+      imgElement.src = data.profileImage;
+    } else {
+      imgElement.src = `${S3_BASE_URL}${data.profileImage}`;
+    }
+
   } catch (error) {
     console.error("에러:", error);
   }
-});
+}
 
-function checkSessionCookie() {
-  if(document.cookie.includes('sessionID')){
-    return true;
-  }
-  else{
-    return false;
-  }
+/* ----------------------------------------------------------
+ *  회원 탈퇴 이벤트
+ * ---------------------------------------------------------- */
+function initDeleteUserButton() {
+  const deleteButton = document.getElementById("deleteUserButton");
+
+  deleteButton.addEventListener("click", async () => {
+
+    const confirmed = await Swal.fire({
+      title: "회원 탈퇴를 진행할까요?",
+      text: "모든 정보가 삭제되며, 이 작업은 되돌릴 수 없습니다.",
+      icon: "warning",
+      confirmButtonText: "네, 탈퇴할게요",
+      cancelButtonText: "취소",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#6c757d",
+      reverseButtons: true,
+    }).then((res) => res.isConfirmed);
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${window.BACKEND_URL}/api/users`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (response.ok) {
+        await Swal.fire({
+          title: "탈퇴 완료",
+          text: "그동안 이용해주셔서 감사합니다.",
+          icon: "success",
+          confirmButtonText: "확인",
+          confirmButtonColor: "#4f7bff",
+        });
+        location.href = "/login";
+      } else {
+        showToast("회원탈퇴 실패. 다시 시도해주세요.", "error");
+      }
+
+    } catch (error) {
+      console.error("회원탈퇴 오류:", error);
+      showToast("서버 요청 중 오류가 발생했습니다.", "error");
+    }
+  });
 }
